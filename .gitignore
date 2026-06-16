@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.dev
+.env.*.local
+
+# Data + artifacts
+data/
+qdrant_storage/
+eval/results/*.json
+eval/results/*.md
+!eval/results/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Claude / tooling
+.claude/
+skills-lock.json
+
+/specs
+/docs
