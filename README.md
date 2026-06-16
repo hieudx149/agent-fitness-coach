@@ -14,7 +14,7 @@ docker compose up --build
 curl http://localhost:8000/api/v1/health
 ```
 
-UI sẽ available tại `http://localhost:8000` sau Phase 7. API docs (Swagger) tại `/docs`.
+The chat UI will be available at `http://localhost:8000` after Phase 7. API docs (Swagger) live at `/docs`.
 
 ## Architecture (target)
 
@@ -22,46 +22,46 @@ UI sẽ available tại `http://localhost:8000` sau Phase 7. API docs (Swagger) 
 User ──► UI (vanilla HTML + Tailwind + JS)
             │ POST /api/v1/chat
             ▼
-       Guardrails (medical / eating / out-of-scope)
-            │ (refuse → return ngay)
+       Guardrails (medical / eating disorder / out-of-scope)
+            │ (refuse → return immediately)
             ▼ safe
        Coach Agent (LLM tool-calling, gpt-4o-mini)
             ├──► rag_search()       → RAG module (Qdrant + FPT)
             └──► analyze_history()  → Analysis module (stats engine)
 ```
 
-3 features của exercise PDF được implement thành 3 module nội bộ (`src/rag/`, `src/analysis/`, `src/agent/`) nhưng chỉ expose 1 endpoint `/api/v1/chat`. Agent tự quyết tool nào, thứ tự nào.
+The exercise PDF defines three features. They are implemented as three internal modules (`src/rag/`, `src/analysis/`, `src/agent/`) but exposed through a single `/api/v1/chat` endpoint. The Coach Agent decides which tools to call, and in what order.
 
 ## Implementation plan
 
-Triển khai theo 8 phase, mỗi phase 1 commit. Xem chi tiết ở thiết kế nội bộ.
+Delivered in 8 phases, one commit per phase. See the internal design doc for full details.
 
-| Phase | Mô tả | Status |
+| Phase | Description | Status |
 |---|---|---|
 | 0 | Scaffold (FastAPI + Docker + Qdrant) | ✅ |
-| 1 | RAG ingest (chunker + FPT embed + Qdrant) | ⏳ |
+| 1 | RAG ingest (chunker + FPT embed + Qdrant) | 🚧 |
 | 2 | RAG retriever + `rag_search` tool | ⏳ |
-| 3 | Guardrails (medical/eating/out-of-scope) | ⏳ |
+| 3 | Guardrails (medical / eating / out-of-scope) | ⏳ |
 | 4 | Workout analysis tool | ⏳ |
 | 5 | Coach Agent + `/chat` endpoint | ⏳ |
 | 6 | Evaluation pipeline | ⏳ |
 | 7 | Chat UI (Perplexity-style tool traces) | ⏳ |
 | 8 | Docs + polish | ⏳ |
 
-README đầy đủ (architecture diagram, API docs, cost estimate, design decisions, metering bonus) sẽ được hoàn thành ở Phase 8.
+The full README (architecture diagram, API docs, cost estimate, design decisions, metering bonus) will be finalized in Phase 8.
 
 ## Tech stack
 
-| Layer | Choice | Lý do |
+| Layer | Choice | Rationale |
 |---|---|---|
 | Language | Python 3.11 + FastAPI | Async LLM I/O, Pydantic validation |
-| Embedding | FPT `multilingual-e5-large` (1024d) | Cost-effective, multilingual robust |
-| Reranker | FPT `bge-reranker-v2-m3` | Cải thiện precision với KB nhỏ |
-| Main LLM | OpenAI `gpt-4o-mini` | Function calling chắc chắn, latency thấp |
-| Judge LLM | OpenAI `gpt-4o` | Mạnh hơn pipeline cho eval công bằng |
-| Vector DB | Qdrant | UI dashboard, metadata filtering mạnh |
-| Containerization | Docker Compose | `docker compose up` 1 lệnh |
+| Embedding | FPT `multilingual-e5-large` (1024d) | Cost-effective, multilingual-robust |
+| Reranker | FPT `bge-reranker-v2-m3` | Boosts precision on a small KB |
+| Main LLM | OpenAI `gpt-4o-mini` | Reliable function calling, low latency |
+| Judge LLM | OpenAI `gpt-4o` | Stronger than the pipeline model for fair eval |
+| Vector DB | Qdrant | Dashboard UI, strong metadata filtering |
+| Containerization | Docker Compose | Single-command bring-up |
 
 ## License
 
-Private — submission for Everfit AI Engineer recruitment.
+Private — submission for the Everfit AI Engineer recruitment exercise.
