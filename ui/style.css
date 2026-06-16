@@ -1,0 +1,112 @@
+/* Custom overrides on top of Tailwind CDN. */
+
+.markdown {
+  line-height: 1.55;
+  font-size: 0.9375rem;
+}
+.markdown p { margin: 0.5rem 0; }
+.markdown h1, .markdown h2, .markdown h3 {
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.markdown h1 { font-size: 1.25rem; }
+.markdown h2 { font-size: 1.125rem; }
+.markdown h3 { font-size: 1rem; }
+.markdown ul, .markdown ol {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.markdown li { margin: 0.25rem 0; }
+.markdown code:not(pre code) {
+  background: #f1f5f9;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  color: #334155;
+}
+.markdown pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-size: 0.85em;
+  margin: 0.5rem 0;
+}
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.85em;
+}
+.markdown th, .markdown td {
+  border: 1px solid #e2e8f0;
+  padding: 0.375rem 0.625rem;
+  text-align: left;
+}
+.markdown th { background: #f8fafc; font-weight: 600; }
+.markdown blockquote {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 0.75rem;
+  color: #475569;
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+.markdown a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+/* Typing indicator dots */
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 1px;
+  border-radius: 50%;
+  background-color: #94a3b8;
+  animation: typing 1.4s infinite ease-in-out both;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.16s; }
+.typing-dot:nth-child(3) { animation-delay: 0.32s; }
+@keyframes typing {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* Smooth scroll for messages container */
+#messages { scroll-behavior: smooth; }
+
+/* Tool trace card */
+.tool-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  margin: 0.5rem 0;
+}
+.tool-card-header {
+  padding: 0.625rem 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  user-select: none;
+}
+.tool-card-header:hover { background: #f1f5f9; }
+.tool-card-body {
+  border-top: 1px solid #e2e8f0;
+  padding: 0.75rem 0.875rem;
+  background: white;
+  font-size: 0.85rem;
+}
+.tool-card.collapsed .tool-card-body { display: none; }
+
+/* Citation card */
+.citation-card {
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+}
