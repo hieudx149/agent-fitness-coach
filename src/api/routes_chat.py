@@ -61,6 +61,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 tool_name=t.tool_name,
                 args=t.args,
                 result_summary=t.result_summary,
+                result_detail={
+                    k: v for k, v in t.raw_result.items() if k != "usage"
+                },
             )
             for t in result.tool_traces
         ],

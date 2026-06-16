@@ -21,6 +21,7 @@ class ToolTraceModel(BaseModel):
     tool_name: str
     args: dict[str, Any]
     result_summary: str
+    result_detail: dict[str, Any] | None = None  # full tool output for UI + eval
 
 
 class CitationModel(BaseModel):
