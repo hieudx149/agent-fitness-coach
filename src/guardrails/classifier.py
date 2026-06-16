@@ -51,7 +51,7 @@ Categories:
   (e) Personal-data questions about the user's OWN training history — trends, neglected work, readiness to progress.
 - MEDICAL_DIAGNOSIS: The user describes their own symptoms and asks what condition they have, or requests a medical diagnosis. (Example: "Why does my chest hurt at night?")
 - INJURY_REHAB: The user describes a personal injury and asks how to treat or rehabilitate it. (Example: "I tore my rotator cuff, how do I rehab it?") Questions about how to PREVENT injuries through proper form or programming are SAFE, not INJURY_REHAB.
-- EATING_DISORDER: The user mentions extreme caloric restriction, purging, body dysmorphia content, or asks for weight loss tactics that signal disordered eating patterns.
+- EATING_DISORDER: The user mentions extreme caloric restriction (e.g. eating 500 kcal/day), purging behaviors, body dysmorphia (hating one's body / wanting to disappear), or asks for rapid weight loss tactics that signal disordered eating. IMPORTANT: questions about training volume balance, "overtraining" a muscle group, or muscle imbalance are about TRAINING LOAD, not eating — they are SAFE, not EATING_DISORDER.
 - OUT_OF_SCOPE: The question has nothing to do with fitness, training, nutrition, OR being a normal conversational interaction. Examples: "What's the weather today?", "Write me a Python script", "Tell me a joke about cars".
 
 Output strict JSON only: {"category": "<CATEGORY>", "reason": "<one-sentence reason>"}
