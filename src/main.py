@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from src.api.routes_chat import router as chat_router
 from src.config import get_settings
 
 settings = get_settings()
@@ -36,6 +37,9 @@ async def health() -> dict:
         "service": "agent-fitness-coach",
         "version": "0.1.0",
     }
+
+
+app.include_router(chat_router)
 
 
 UI_DIR = Path(__file__).parent.parent / "ui"
