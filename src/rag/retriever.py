@@ -63,8 +63,15 @@ class Retriever:
         documents = [h.payload["text"] for h in hits]
         ranked = await self.fpt_client.rerank(query, documents, top_n=top_n)
 
+        # Drop weakly-relevant chunks: the reranker score is a calibrated
+        # relevance in [0, 1], so anything below the threshold is noise that
+        # would only pad the citation list and dilute the answer's grounding.
+        threshold = settings.rag_rerank_threshold
+
         results: list[RetrievedChunk] = []
         for original_idx, score in ranked:
+            if score < threshold:
+                continue
             hit = hits[original_idx]
             results.append(
                 RetrievedChunk(
@@ -74,5 +81,13 @@ class Retriever:
                     chunk_id=str(hit.id),
                     score=score,
                 )
+            )
+
+        if not results:
+            logger.info(
+                "All %d reranked chunks below threshold %.2f for query: %s",
+                len(ranked),
+                threshold,
+                query[:80],
             )
         return results

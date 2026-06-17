@@ -318,7 +318,7 @@
 
     // Create empty assistant message, then update in place as events arrive.
     const assistantMsg = {
-      role: "assistant", content: "", tool_traces: [], sources: [],
+      role: "assistant", content: "", tool_traces: [], sources: [], data_points: [],
       refused: false, refusal_category: null,
     };
     if ($emptyState && !$emptyState.classList.contains("hidden")) {
@@ -463,13 +463,20 @@
         break;
 
       case "done":
-        if (event.answer && !msg.content) {
+        // Re-render from the canonical answer even if we streamed deltas: the
+        // final text has its [n] citations renumbered to match the score-sorted
+        // source cards, so the streamed (pre-sort) numbering must be replaced.
+        if (event.answer) {
           msg.content = event.answer;
           setAnswerHTML(node, window.UI.streamHelpers.renderMarkdown(msg.content));
         }
         if (event.sources && event.sources.length) {
           msg.sources = event.sources;
           window.UI.updateAssistantSection(node, "sources", window.UI.renderCitations(msg.sources));
+        }
+        if (event.data_points && event.data_points.length) {
+          msg.data_points = event.data_points;
+          window.UI.updateAssistantSection(node, "data", window.UI.renderDataPoints(msg.data_points));
         }
         if (event.usage) msg.usage = event.usage;
         if (event.iterations != null) msg.iterations = event.iterations;

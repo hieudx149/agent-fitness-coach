@@ -39,6 +39,7 @@ async def analyze_history(
     Returns:
         {
             "stats_summary": str,    # markdown table of computed stats
+            "data_points": list,     # citable {ref, category, label, detail} facts
             "insufficient": bool,    # True when history is empty / all malformed
             "user_id": str,
             "n_workouts": int,       # raw count, for quick agent gating
@@ -64,13 +65,16 @@ async def analyze_history(
     if not typed_history:
         return {
             "stats_summary": "",
+            "data_points": [],
             "insufficient": True,
             "user_id": user_id,
             "n_workouts": 0,
         }
 
+    summary, data_points = build_summary(typed_history)
     return {
-        "stats_summary": build_summary(typed_history),
+        "stats_summary": summary,
+        "data_points": data_points,
         "insufficient": False,
         "user_id": user_id,
         "n_workouts": len(typed_history),

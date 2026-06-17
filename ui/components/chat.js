@@ -49,6 +49,7 @@ function renderAssistant(msg) {
           ${renderMarkdown(msg.content || "") || "<i class='text-slate-400'>(empty response)</i>"}
         </div>
         <div data-section="sources">${window.UI.renderCitations(msg.sources || [])}</div>
+        <div data-section="data">${window.UI.renderDataPoints(msg.data_points || [])}</div>
         <div data-section="usage">${renderUsageBlock(msg)}</div>
       </div>
     </div>

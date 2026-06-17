@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from src.analysis.insight import build_summary
 from src.analysis.models import WorkoutEntry
 from src.analysis.normalize import canonical_exercise_name, to_kg
 from src.analysis.stats import (
@@ -161,3 +162,29 @@ def test_frequency_real_user_a(user_a_history):
     assert freq.total_sessions > 0
     assert freq.sessions_per_week > 0
     assert freq.span_days > 0
+
+
+# ──────────────── summary + data-point references ────────────────
+
+
+def test_build_summary_emits_referenced_data_points(user_a_history):
+    """Every data point's [ref] must also appear inline in the markdown so the
+    agent can cite the exact figure it used."""
+    summary, data_points = build_summary(user_a_history)
+
+    assert data_points, "expected citable data points for a non-empty history"
+    # Unique, sequential refs starting at D1.
+    refs = [d["ref"] for d in data_points]
+    assert refs == [f"D{i}" for i in range(1, len(refs) + 1)]
+    # Each ref tag is embedded in the markdown the agent reads.
+    for ref in refs:
+        assert f"[{ref}]" in summary
+    # Data points carry the fields the UI renders.
+    for d in data_points:
+        assert {"ref", "category", "label", "detail"} <= d.keys()
+
+
+def test_build_summary_empty_history_has_no_data_points():
+    summary, data_points = build_summary([])
+    assert data_points == []
+    assert "No workout data" in summary

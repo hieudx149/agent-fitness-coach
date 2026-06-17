@@ -33,11 +33,21 @@ class CitationModel(BaseModel):
     snippet: str
 
 
+class DataPointModel(BaseModel):
+    """A citable workout-data fact backing a [Dn] reference in the answer."""
+
+    ref: str
+    category: str
+    label: str
+    detail: str
+
+
 class ChatResponse(BaseModel):
     answer: str
     refused: bool = False
     refusal_category: str | None = None
     tool_traces: list[ToolTraceModel] = Field(default_factory=list)
     sources: list[CitationModel] = Field(default_factory=list)
+    data_points: list[DataPointModel] = Field(default_factory=list)
     usage: dict[str, int] | None = None
     iterations: int | None = None
