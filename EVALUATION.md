@@ -51,23 +51,71 @@ Source: [`eval/testset.json`](./eval/testset.json). Summary:
 
 ### Rule-based (4)
 
-| Metric | What it checks | When it runs |
-|---|---|---|
-| `tool_selection_correctness` | `expected_tools ⊆ called_tools` (or no tools for refusal cases) | Every case |
-| `source_attribution` | `sources[]` non-empty; if `expected_source_files` set, at least one matches | Cases with `must_cite_sources: true` |
-| `data_value_reference` | Each `expected_numbers` value appears in the answer (numeric fuzzy match, ±1% tolerance, comma-stripped) | Cases with `expected_numbers` set |
-| `must_contain` | Any-of keyword match in the answer (case-insensitive) | Cases with `must_contain_any` set |
+#### `tool_selection_correctness`
 
-All return `{metric, score in [0,1], passed: bool, detail}`. Pass threshold for rule-based metrics is binary (0/1 for tool selection / sources / must_contain) or ≥ 0.5 for `data_value_reference`.
+**What agent aspect it evaluates:** Whether the agent's routing logic is correct — does it know *which* tool to reach for given a question type?
+
+**How it works:** Checks that every tool in `expected_tools` was actually called. For refusal cases, checks that no tools were called at all. Runs on every case.
+
+**Why it matters:** An agent that always calls `rag_search` regardless of question type would score 100% on RAG cases and 0% on analysis cases. This metric is the first signal that the agent's decision logic is working at all — before we care about answer quality. It also verifies that the guardrail fires *before* the agent: a refused message must produce zero tool calls.
+
+---
+
+#### `source_attribution`
+
+**What agent aspect it evaluates:** Whether the RAG retrieval pipeline surfaces the *right* document, not just any document.
+
+**How it works:** Checks that `sources[]` is non-empty and that at least one `source_file` matches the expected document (e.g. `10-deload.md` for a deload question). Only runs on cases with `must_cite_sources: true`.
+
+**Why it matters:** A retrieval pipeline can return *something* for every query — the question is whether it returns the *relevant* something. A deload question answered by citing the bench press technique doc is a retrieval failure even if the prose sounds plausible. This metric catches that.
+
+---
+
+#### `data_value_reference`
+
+**What agent aspect it evaluates:** Whether the agent grounds its analysis answers in the actual computed numbers — not vague summaries.
+
+**How it works:** Each `expected_numbers` value (e.g. `82.5`, `1.28`) must appear verbatim in the answer, with ±1% fuzzy tolerance and comma-stripping. Only runs on analysis cases where expected numbers are pre-computed from the sample history.
+
+**Why it matters:** The brief explicitly requires "data-backed responses — reference specific numbers, dates, trends." An agent that says "your bench press has been improving steadily" when it should say "your bench is up 1.28 kg/week since January 2nd" is failing this requirement even if the prose is fluent. This metric is also a grounding check: since `analyze_history` is deterministic Python, the numbers are ground truth — any deviation in the answer is the agent paraphrasing away precision it had access to.
+
+---
+
+#### `must_contain`
+
+**What agent aspect it evaluates:** Topic relevance — did the agent stay on subject?
+
+**How it works:** Case-insensitive any-of keyword match against the answer. If the expected list is `["chest", "back"]`, the answer must mention at least one. Runs on all cases with `must_contain_any` set.
+
+**Why it matters:** The broadest and most permissive metric. It catches total topic drift — an agent that answered a completely different question, or a refusal template appearing where a real answer was expected. Passes easily when the agent is on topic, which means failures here are severe.
+
+---
 
 ### LLM-as-judge (2)
 
-Judge model: **`gpt-4o`** (chosen deliberately as a stronger model than the pipeline's `gpt-4o-mini` so the judge isn't self-grading), temperature 0, JSON mode, 1–5 rubric normalised to [0, 1] (pass at ≥ 0.75, i.e. raw ≥ 4/5).
+Judge model: **`gpt-4o`** — chosen deliberately as a stronger model than the pipeline's `gpt-4o-mini` so the judge isn't self-grading. Temperature 0, JSON mode, 1–5 rubric normalised to [0, 1], pass threshold ≥ 0.75 (i.e. raw score ≥ 4/5).
 
-| Metric | When it runs | What the rubric asks |
-|---|---|---|
-| `faithfulness` | All non-refusal cases | "Are the assistant's factual claims clearly supported by the visible context (sources + stats summary)? Score 1–5." |
-| `refusal_correctness` | Adversarial cases | "Did the assistant correctly refuse-or-allow according to the expectation, and was the redirect quality appropriate? Score 1–5." |
+---
+
+#### `faithfulness`
+
+**What agent aspect it evaluates:** Whether the agent's final answer is grounded in what its tools actually returned — catching hallucination that rule-based metrics cannot.
+
+**How it works:** The judge receives the agent's answer, the full RAG sources (with snippets and scores), and the stats summary returned by `analyze_history`. It scores 1–5: does every factual claim in the answer have visible support in the provided context? Runs on all non-refusal cases.
+
+**Why it matters:** Rule-based metrics check structure — did the right tools run, are the right numbers present? Faithfulness checks *coherence between tool output and final answer*. An agent could pass `tool_selection_correctness` and `data_value_reference` while still fabricating a claim about, say, the user's squat that was never in the stats summary. That failure only surfaces here. The judge is `gpt-4o` (not the pipeline's `gpt-4o-mini`) so it can independently assess whether the claims are supported — it's not evaluating its own output.
+
+---
+
+#### `refusal_correctness`
+
+**What agent aspect it evaluates:** Guardrail calibration end-to-end — not just whether the classifier fired, but whether the outcome was correct and the redirect was appropriate for the user.
+
+**How it works:** Only runs on the two adversarial cases. The judge is given the message, the expected outcome (refuse or allow), and the actual response. It scores 1–5 across two dimensions: (1) did the system make the right call — refuse or allow? (2) if it refused, was the redirect to the right professional (physician, physiotherapist, dietitian) appropriate and clear? Runs only on adversarial cases.
+
+**Why it matters:** The classifier can be tested in isolation, but `refusal_correctness` tests the *user-facing outcome*. A correct category label with a confusing or unhelpful refusal message still fails the user. Conversely, an educational question that gets refused with a perfect redirect message is still a false positive — the metric penalises both.
+
+---
 
 The full judge prompts are in [`eval/metrics.py`](./eval/metrics.py).
 
