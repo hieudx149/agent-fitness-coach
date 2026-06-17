@@ -134,7 +134,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
 
 @router.get("/sample-history")
 async def sample_history(user_id: str = "user_a") -> dict:
-    """Demo helper for the UI — returns one of the sample users' workouts."""
+    """Returns the workout list for one user. Used by both eval and UI."""
     if not SAMPLE_HISTORY_PATH.is_file():
         raise HTTPException(status_code=404, detail="Sample history file not found")
     data = json.loads(SAMPLE_HISTORY_PATH.read_text())
@@ -145,5 +145,60 @@ async def sample_history(user_id: str = "user_a") -> dict:
         "user_id": user_id,
         "name": user.get("name"),
         "profile": user.get("profile"),
+        "role": user.get("role"),
         "history": user.get("workouts", []),
     }
+
+
+@router.get("/users")
+async def list_users() -> dict:
+    """Roster of demo users grouped by role — drives the UI's role + target picker.
+
+    Returns:
+        {
+          "coaches": [{id, name, profile, clients: [{id, name, n_workouts, profile}, ...]}],
+          "gymers":  [{id, name, profile, n_workouts}, ...]
+        }
+    """
+    if not SAMPLE_HISTORY_PATH.is_file():
+        raise HTTPException(status_code=404, detail="Sample history file not found")
+    data = json.loads(SAMPLE_HISTORY_PATH.read_text())
+    users = data.get("users", {})
+
+    coaches: list[dict] = []
+    gymers: list[dict] = []
+
+    for uid, u in users.items():
+        role = u.get("role")
+        if role == "coach":
+            client_ids = u.get("clients", [])
+            client_objs = []
+            for cid in client_ids:
+                c = users.get(cid, {})
+                client_objs.append(
+                    {
+                        "id": cid,
+                        "name": c.get("name", cid),
+                        "profile": c.get("profile", ""),
+                        "n_workouts": len(c.get("workouts", [])),
+                    }
+                )
+            coaches.append(
+                {
+                    "id": uid,
+                    "name": u.get("name", uid),
+                    "profile": u.get("profile", ""),
+                    "clients": client_objs,
+                }
+            )
+        elif role == "gymer":
+            gymers.append(
+                {
+                    "id": uid,
+                    "name": u.get("name", uid),
+                    "profile": u.get("profile", ""),
+                    "n_workouts": len(u.get("workouts", [])),
+                }
+            )
+
+    return {"coaches": coaches, "gymers": gymers}

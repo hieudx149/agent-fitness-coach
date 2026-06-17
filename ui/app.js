@@ -3,15 +3,18 @@
 
 (function () {
   const API_BASE = "/api/v1";
-  const LS_CONVERSATIONS = "awc_conversations_v1";
-  const LS_CURRENT = "awc_current_conv_v1";
-  const LS_USER = "awc_current_user_v1";
+  const LS_CONVERSATIONS = "awc_conversations_v2";
+  const LS_CURRENT = "awc_current_conv_v2";
+  const LS_ROLE = "awc_role_v2";
+  const LS_TARGET = "awc_target_v2";
 
   // ─── state ─────────────────────────────────────────────────────
   const state = {
     conversations: loadConversations(),
     currentId: localStorage.getItem(LS_CURRENT),
-    userId: localStorage.getItem(LS_USER) || "user_a",
+    role: localStorage.getItem(LS_ROLE) || "gymer",
+    targetId: localStorage.getItem(LS_TARGET) || "gymer_alex",
+    roster: { coaches: [], gymers: [] },
     history: [],
     inFlight: false,
   };
@@ -24,25 +27,72 @@
   const $sendBtn = document.getElementById("send-btn");
   const $newChatBtn = document.getElementById("new-chat-btn");
   const $convList = document.getElementById("conv-list");
-  const $userPicker = document.getElementById("user-picker");
+  const $rolePicker = document.getElementById("role-picker");
+  const $targetPicker = document.getElementById("target-picker");
   const $convTitle = document.getElementById("conv-title");
   const $convStatus = document.getElementById("conv-status");
   const $uploadInput = document.getElementById("upload-input");
   const $historyStatus = document.getElementById("history-status");
 
   // ─── init ──────────────────────────────────────────────────────
-  function init() {
-    renderUserPicker();
+  async function init() {
+    await loadRoster();
+    if (!isValidTargetForRole(state.role, state.targetId)) {
+      state.targetId = defaultTargetForRole(state.role);
+      localStorage.setItem(LS_TARGET, state.targetId);
+    }
+    renderRolePicker();
+    renderTargetPicker();
     renderConversationList();
     if (state.currentId) {
       const c = getConversation(state.currentId);
-      if (c) renderConversation(c);
-      else clearChat();
+      if (c && c.contextId === currentContextId()) {
+        renderConversation(c);
+      } else {
+        state.currentId = null;
+        localStorage.removeItem(LS_CURRENT);
+        clearChat();
+      }
     } else {
       clearChat();
     }
-    loadHistoryForUser(state.userId).then(updateConvStatus);
+    await loadHistoryForTarget(state.targetId);
+    updateConvStatus();
     bindEvents();
+  }
+
+  function currentContextId() {
+    return `${state.role}:${state.targetId}`;
+  }
+
+  function targetsForRole(role) {
+    if (role === "coach") {
+      // Coach picks among the active coach's clients.
+      // Currently one coach in the roster; pull its client list.
+      const coach = state.roster.coaches[0];
+      return coach ? coach.clients : [];
+    }
+    return state.roster.gymers;
+  }
+
+  function isValidTargetForRole(role, targetId) {
+    return targetsForRole(role).some((t) => t.id === targetId);
+  }
+
+  function defaultTargetForRole(role) {
+    const list = targetsForRole(role);
+    return list.length ? list[0].id : "";
+  }
+
+  async function loadRoster() {
+    try {
+      const r = await fetch(`${API_BASE}/users`);
+      if (!r.ok) throw new Error(r.statusText);
+      state.roster = await r.json();
+    } catch (e) {
+      console.error("Failed to load roster", e);
+      state.roster = { coaches: [], gymers: [] };
+    }
   }
 
   // ─── conversation persistence ──────────────────────────────────
@@ -68,7 +118,9 @@
     const conv = {
       id,
       title,
-      userId: state.userId,
+      role: state.role,
+      targetId: state.targetId,
+      contextId: currentContextId(),
       messages: [],
       createdAt: new Date().toISOString(),
     };
@@ -91,19 +143,54 @@
   }
 
   // ─── rendering ─────────────────────────────────────────────────
-  function renderUserPicker() {
-    window.UI.renderUserPicker($userPicker, state.userId, async (newUserId) => {
-      state.userId = newUserId;
-      localStorage.setItem(LS_USER, newUserId);
-      await loadHistoryForUser(newUserId);
+  function renderRolePicker() {
+    window.UI.renderRolePicker($rolePicker, state.role, async (newRole) => {
+      if (newRole === state.role) return;
+      state.role = newRole;
+      localStorage.setItem(LS_ROLE, newRole);
+      // Reset target to the first valid one for this role.
+      state.targetId = defaultTargetForRole(newRole);
+      localStorage.setItem(LS_TARGET, state.targetId);
+      renderTargetPicker();
+      renderConversationList();
+      state.currentId = null;
+      localStorage.removeItem(LS_CURRENT);
+      clearChat();
+      await loadHistoryForTarget(state.targetId);
       updateConvStatus();
     });
+  }
+
+  function renderTargetPicker() {
+    const targets = targetsForRole(state.role);
+    window.UI.renderTargetPicker(
+      $targetPicker,
+      state.role,
+      targets,
+      state.targetId,
+      async (newTargetId) => {
+        if (newTargetId === state.targetId) return;
+        state.targetId = newTargetId;
+        localStorage.setItem(LS_TARGET, newTargetId);
+        renderConversationList();
+        state.currentId = null;
+        localStorage.removeItem(LS_CURRENT);
+        clearChat();
+        await loadHistoryForTarget(newTargetId);
+        updateConvStatus();
+      },
+    );
+  }
+
+  function conversationsForCurrentContext() {
+    const ctx = currentContextId();
+    return state.conversations.filter((c) => c.contextId === ctx);
   }
 
   function renderConversationList() {
     window.UI.renderConversationList(
       $convList,
-      state.conversations,
+      conversationsForCurrentContext(),
       state.currentId,
       {
         onLoad: (id) => {
@@ -169,25 +256,39 @@
   }
 
   function updateConvStatus() {
-    const parts = [`user: ${state.userId}`];
+    const targetName = targetNameFor(state.targetId);
+    const parts = [
+      state.role === "coach" ? `Coach · client: ${targetName}` : `Gymer · ${targetName}`,
+    ];
     if (state.history.length) parts.push(`${state.history.length} workouts loaded`);
+    else parts.push("no history");
     $convStatus.textContent = parts.join(" · ");
   }
 
+  function targetNameFor(targetId) {
+    const list = targetsForRole(state.role);
+    const found = list.find((t) => t.id === targetId);
+    return found ? found.name : targetId;
+  }
+
   // ─── history loading ───────────────────────────────────────────
-  async function loadHistoryForUser(userId) {
-    if (userId === "anonymous") {
+  async function loadHistoryForTarget(targetId) {
+    if (!targetId) {
       state.history = [];
-      $historyStatus.textContent = "No history (knowledge-only mode)";
+      $historyStatus.textContent = "No target selected";
       return;
     }
     $historyStatus.textContent = "Loading…";
     try {
-      const r = await fetch(`${API_BASE}/sample-history?user_id=${encodeURIComponent(userId)}`);
+      const r = await fetch(`${API_BASE}/sample-history?user_id=${encodeURIComponent(targetId)}`);
       if (!r.ok) throw new Error(`${r.status}`);
       const data = await r.json();
       state.history = data.history || [];
-      $historyStatus.textContent = `${state.history.length} ${data.name ? "(" + data.name + ")" : ""} entries`;
+      if (state.history.length === 0) {
+        $historyStatus.textContent = `No workout history (knowledge-only mode)`;
+      } else {
+        $historyStatus.textContent = `${state.history.length} workouts loaded`;
+      }
     } catch (e) {
       state.history = [];
       $historyStatus.textContent = `Failed to load: ${e.message}`;
@@ -234,7 +335,7 @@
       <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
       <span class="ml-2">Thinking…</span></span>`);
 
-    const body = { message: text, user_id: state.userId, history: state.history };
+    const body = { message: text, user_id: state.targetId, history: state.history };
 
     try {
       const r = await fetch(`${API_BASE}/chat/stream`, {
@@ -424,10 +525,7 @@
       try {
         const history = await window.UI.parseUploadedHistory(file);
         state.history = history;
-        state.userId = "custom_upload";
-        localStorage.setItem(LS_USER, state.userId);
-        renderUserPicker();
-        $historyStatus.textContent = `Loaded ${history.length} entries from ${file.name}`;
+        $historyStatus.textContent = `Loaded ${history.length} entries from ${file.name} (overrides current target)`;
         updateConvStatus();
       } catch (err) {
         $historyStatus.textContent = `Upload failed: ${err.message}`;
