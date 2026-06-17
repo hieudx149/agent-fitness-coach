@@ -16,6 +16,8 @@ from src.analysis.stats import (
     compute_frequency,
     compute_muscle_group_balance,
     compute_per_exercise,
+    detect_flags,
+    detect_missing_compounds,
     epley_1rm,
 )
 
@@ -188,3 +190,57 @@ def test_build_summary_empty_history_has_no_data_points():
     summary, data_points = build_summary([])
     assert data_points == []
     assert "No workout data" in summary
+
+
+def test_build_summary_renders_athlete_header(user_a_history):
+    summary, _ = build_summary(
+        user_a_history, name="Alex", profile="Intermediate lifter, 28M, PPL"
+    )
+    assert "## Athlete" in summary
+    assert "Name: Alex" in summary
+    assert "Intermediate lifter" in summary
+
+
+def test_build_summary_omits_athlete_header_without_profile(user_a_history):
+    summary, _ = build_summary(user_a_history)
+    assert "## Athlete" not in summary
+
+
+# ──────────────── interpretive detection (edge-case flags) ────────────────
+
+
+def test_missing_compounds_flags_user_b_deadlift(user_a_history, user_b_history):
+    """User B has no deadlift; absence must be surfaced explicitly (User A has it)."""
+    a_missing = {m["exercise"] for m in detect_missing_compounds(user_a_history)}
+    b_missing = {m["exercise"] for m in detect_missing_compounds(user_b_history)}
+    assert "deadlift" not in a_missing, "User A trains deadlift — should not be missing"
+    assert "deadlift" in b_missing, "User B has no posterior-chain deadlift work"
+
+
+def test_flags_detect_user_b_neglect_and_imbalance(user_b_history):
+    """User B skips legs and is chest-dominant — neglect + imbalance expected."""
+    flags = detect_flags(user_b_history)
+    kinds = {f.kind for f in flags}
+    assert "neglect" in kinds, "expected a neglect flag for User B's leg/shoulder gap"
+    assert "imbalance" in kinds, "expected a push/pull imbalance flag for chest dominance"
+    imbalance = next(f for f in flags if f.kind == "imbalance")
+    assert "push-dominant" in imbalance.message
+
+
+def test_flags_detect_user_a_deload_week(user_a_history):
+    """User A deloads late January (squat/bench dip then recover)."""
+    deloads = [f for f in detect_flags(user_a_history) if f.kind == "deload"]
+    assert deloads, "expected a deload flag for User A's late-January reduction"
+    assert any("2026-01-26" in f.message for f in deloads)
+
+
+def test_flags_balanced_user_a_no_neglect_or_imbalance(user_a_history):
+    """User A trains every major group regularly — no neglect/imbalance flags."""
+    flags = detect_flags(user_a_history)
+    assert not any(f.kind == "neglect" for f in flags)
+    assert not any(f.kind == "imbalance" for f in flags)
+
+
+def test_flags_empty_history_is_empty():
+    assert detect_flags([]) == []
+    assert detect_missing_compounds([]) == []

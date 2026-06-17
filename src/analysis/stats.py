@@ -80,23 +80,26 @@ def _linear_slope(xs: list[float], ys: list[float]) -> float:
     return cov / var if var != 0 else 0.0
 
 
-def _weight_trend_kg_per_week(entries: list[WorkoutEntry]) -> float | None:
-    """Linear regression of max-weight-per-session over time (kg/week)."""
+def _session_max_series(entries: list[WorkoutEntry]) -> list[tuple[date, float]]:
+    """Per-training-day max load (kg), sorted by date. Empty sets are skipped."""
     per_date: dict[date, float] = {}
     for e in entries:
-        d = _parse_date(e.date)
         weights = [to_kg(s.weight, s.unit) for s in e.sets]
         if not weights:
             continue
+        d = _parse_date(e.date)
         per_date[d] = max(per_date.get(d, 0.0), max(weights))
+    return sorted(per_date.items())
 
-    if len(per_date) < 2:
+
+def _weight_trend_kg_per_week(entries: list[WorkoutEntry]) -> float | None:
+    """Linear regression of max-weight-per-session over time (kg/week)."""
+    series = _session_max_series(entries)
+    if len(series) < 2:
         return None
-
-    sorted_dates = sorted(per_date.keys())
-    first = sorted_dates[0]
-    xs = [float((d - first).days) for d in sorted_dates]
-    ys = [per_date[d] for d in sorted_dates]
+    first = series[0][0]
+    xs = [float((d - first).days) for d, _ in series]
+    ys = [w for _, w in series]
     slope_per_day = _linear_slope(xs, ys)
     return round(slope_per_day * 7, 2)
 
@@ -200,3 +203,173 @@ def filter_recent(history: list[WorkoutEntry], days: int) -> list[WorkoutEntry]:
     unique_dates = sorted({_parse_date(e.date) for e in history})
     cutoff = unique_dates[-1] - timedelta(days=days)
     return [e for e in history if _parse_date(e.date) >= cutoff]
+
+
+# ──────────────────── interpretive detection (heuristics) ────────────────────
+# The aggregations above are pure measurement. The detectors below turn those
+# numbers into the programming red flags the brief calls out (neglect, missing
+# posterior-chain work, push/pull imbalance, deload weeks). They are heuristics
+# with explicit, tunable thresholds — deterministic and testable, so the LLM
+# never has to *infer* an absence or a dip it cannot see in a stats table.
+
+# Compound lifts a reasonably complete program is expected to contain, mapped
+# to the movement pattern each one covers. Absence → a "missing work" flag.
+EXPECTED_COMPOUNDS: dict[str, str] = {
+    "squat": "legs (squat pattern)",
+    "deadlift": "posterior chain (hip hinge)",
+    "bench press": "horizontal push",
+    "overhead press": "vertical push",
+    "barbell row": "horizontal pull",
+    "pull-up": "vertical pull",
+}
+
+# Major primary muscle groups we expect to see trained with some regularity.
+MAJOR_GROUPS: tuple[str, ...] = ("chest", "back", "legs", "shoulders")
+# Push vs pull volume balance is computed from these primary groups (arms are
+# a mix of both and deliberately excluded to keep the ratio interpretable).
+PUSH_GROUPS: tuple[str, ...] = ("chest", "shoulders")
+PULL_GROUPS: tuple[str, ...] = ("back",)
+
+STALE_DAYS = 21  # a group untrained this long before the last session = neglect
+SPARSE_SHARE = 0.20  # a group trained in <20% of sessions = neglect
+IMBALANCE_RATIO = 2.0  # push:pull (or inverse) volume beyond this = imbalance
+DELOAD_DROP = 0.10  # session-max drop ≥10% that later recovers = likely deload
+
+
+@dataclass
+class TrainingFlag:
+    kind: str  # "neglect" | "imbalance" | "deload" | "missing"
+    severity: str  # "warning" | "info"
+    message: str
+
+
+def detect_missing_compounds(history: list[WorkoutEntry]) -> list[dict[str, str]]:
+    """Expected compound lifts that never appear in the history.
+
+    Surfacing absence explicitly is the whole point: an empty stats row is
+    invisible to the agent, so without this it cannot say "you have no
+    deadlift / posterior-chain work" with any confidence.
+    """
+    if not history:
+        return []  # no data ≠ absence — that's an "insufficient" case, not a flag
+    present = {canonical_exercise_name(e.exercise) for e in history}
+    return [
+        {"exercise": name, "pattern": pattern}
+        for name, pattern in EXPECTED_COMPOUNDS.items()
+        if name not in present
+    ]
+
+
+def _detect_deloads(history: list[WorkoutEntry]) -> list[TrainingFlag]:
+    """Find weeks where a lift's session-max dropped ≥DELOAD_DROP then recovered.
+
+    Dips are grouped by ISO week (Monday start) so a deload spread across two
+    sessions in the same week — e.g. bench Tue, squat Thu — reads as one event.
+    """
+    by_exercise: dict[str, list[WorkoutEntry]] = defaultdict(list)
+    for entry in history:
+        by_exercise[canonical_exercise_name(entry.exercise)].append(entry)
+
+    by_week: dict[date, set[str]] = defaultdict(set)
+    for exercise, entries in by_exercise.items():
+        series = _session_max_series(entries)
+        if len(series) < 3:
+            continue
+        for i in range(1, len(series) - 1):
+            _, prev_w = series[i - 1]
+            cur_d, cur_w = series[i]
+            if prev_w <= 0:
+                continue
+            recovered = any(w >= prev_w for _, w in series[i + 1 :])
+            if cur_w <= (1 - DELOAD_DROP) * prev_w and recovered:
+                week_start = cur_d - timedelta(days=cur_d.weekday())
+                by_week[week_start].add(exercise)
+
+    flags: list[TrainingFlag] = []
+    for week_start in sorted(by_week):
+        exercises = ", ".join(sorted(by_week[week_start]))
+        flags.append(
+            TrainingFlag(
+                kind="deload",
+                severity="info",
+                message=(
+                    f"possible deload week of {week_start} — {exercises} max weight "
+                    f"dipped ≥{DELOAD_DROP:.0%} then recovered"
+                ),
+            )
+        )
+    return flags
+
+
+def detect_flags(history: list[WorkoutEntry]) -> list[TrainingFlag]:
+    """Derive programming red flags (neglect, imbalance, deload) from the stats.
+
+    Missing compounds are returned separately by `detect_missing_compounds`.
+    """
+    if not history:
+        return []
+
+    freq = compute_frequency(history)
+    balance = compute_muscle_group_balance(history)
+    total = freq.total_sessions
+    flags: list[TrainingFlag] = []
+
+    # ── Neglect: major groups untrained, stale, or low-frequency ──
+    for group in MAJOR_GROUPS:
+        gs = balance.get(group)
+        if gs is None:
+            flags.append(
+                TrainingFlag(
+                    "neglect",
+                    "warning",
+                    f"{group} not trained at all over {freq.first_date} → {freq.last_date}",
+                )
+            )
+            continue
+        days_since = (freq.last_date - gs.last_trained).days if freq.last_date else 0
+        share = gs.sessions / total if total else 0.0
+        if days_since >= STALE_DAYS:
+            flags.append(
+                TrainingFlag(
+                    "neglect",
+                    "warning",
+                    f"{group} last trained {gs.last_trained} — {days_since} days "
+                    f"before the most recent session",
+                )
+            )
+        elif share < SPARSE_SHARE:
+            flags.append(
+                TrainingFlag(
+                    "neglect",
+                    "warning",
+                    f"{group} trained in only {gs.sessions}/{total} sessions "
+                    f"({share:.0%} of training days)",
+                )
+            )
+
+    # ── Imbalance: push vs pull volume ──
+    push_vol = sum(balance[g].total_volume_kg for g in PUSH_GROUPS if g in balance)
+    pull_vol = sum(balance[g].total_volume_kg for g in PULL_GROUPS if g in balance)
+    if push_vol > 0 and pull_vol > 0:
+        if push_vol / pull_vol >= IMBALANCE_RATIO:
+            flags.append(
+                TrainingFlag(
+                    "imbalance",
+                    "warning",
+                    f"push:pull volume imbalance — push {push_vol:.0f} kg vs pull "
+                    f"{pull_vol:.0f} kg ({push_vol / pull_vol:.1f}:1, push-dominant)",
+                )
+            )
+        elif pull_vol / push_vol >= IMBALANCE_RATIO:
+            flags.append(
+                TrainingFlag(
+                    "imbalance",
+                    "warning",
+                    f"push:pull volume imbalance — pull {pull_vol:.0f} kg vs push "
+                    f"{push_vol:.0f} kg ({pull_vol / push_vol:.1f}:1, pull-dominant)",
+                )
+            )
+
+    # ── Deload weeks ──
+    flags.extend(_detect_deloads(history))
+    return flags

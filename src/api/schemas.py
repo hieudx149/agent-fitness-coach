@@ -11,6 +11,14 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     user_id: str = Field(default="anonymous", max_length=64)
+    name: str | None = Field(
+        default=None, max_length=128, description="Athlete display name (for the analysis header)."
+    )
+    profile: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Athlete profile text (level, bodyweight, training style) for the analysis header.",
+    )
     history: list[dict] = Field(
         default_factory=list,
         description="Optional workout history JSON array (passed when the user wants analysis).",

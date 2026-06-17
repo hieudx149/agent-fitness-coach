@@ -29,7 +29,7 @@ SYSTEM_PROMPT = """You are Coach Assist, an AI assistant for fitness coaches and
 
 You have access to two tools:
 - rag_search(query): evidence-based info from a curated fitness knowledge base.
-- analyze_history(question): returns a deterministic markdown summary of stats over the CURRENT user's workout history (sessions, max weight, e1RM, weekly trend, muscle-group balance, frequency). Each row/section is tagged with a reference id like [D1], [D2]. The tool itself runs no LLM — you read the summary and synthesise the answer.
+- analyze_history(question): returns a deterministic markdown summary of stats over the CURRENT user's workout history (athlete profile, sessions, max weight, e1RM, weekly trend, muscle-group balance, frequency, and a "Programming flags" section listing detected neglect / push-pull imbalance / deload weeks / missing compound lifts). Each row/section is tagged with a reference id like [D1], [D2]. The tool itself runs no LLM — you read the summary and synthesise the answer. When the summary flags neglected groups, imbalance, or missing lifts (e.g. no deadlift / posterior-chain work), surface them and cite the [Dn] tag.
 
 Tool selection:
 - Generic fitness / training / technique / principle questions → rag_search
@@ -83,6 +83,8 @@ async def _execute_tool(
     args: dict[str, Any],
     user_id: str,
     history: list[dict],
+    profile_name: str | None = None,
+    profile: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch a tool call. Injects request context into analyze_history."""
     if name == "rag_search":
@@ -92,6 +94,8 @@ async def _execute_tool(
             user_id=user_id,
             question=args.get("question", ""),
             history=history,
+            name=profile_name,
+            profile=profile,
         )
     return {"error": f"Unknown tool: {name}"}
 
@@ -171,6 +175,9 @@ def _summarize_for_ui(name: str, result: dict[str, Any]) -> str:
     if name == "analyze_history":
         if result.get("insufficient"):
             return "Insufficient workout history"
+        n_flags = len(result.get("flags", [])) + len(result.get("missing_compounds", []))
+        if n_flags:
+            return f"Computed workout summary ({n_flags} flag{'s' if n_flags != 1 else ''})"
         return "Computed workout summary"
     if "error" in result:
         return f"Tool error: {result['error']}"
@@ -216,6 +223,8 @@ async def run_agent_stream(
     user_id: str,
     history: list[dict],
     max_iterations: int = 5,
+    name: str | None = None,
+    profile: str | None = None,
 ) -> AsyncIterator[dict]:
     """Async generator yielding events as the agent runs.
 
@@ -331,7 +340,9 @@ async def run_agent_stream(
 
             yield {"type": "tool_call", "tool_name": tool_name, "args": args}
 
-            tool_result = await _execute_tool(tool_name, args, user_id, history)
+            tool_result = await _execute_tool(
+                tool_name, args, user_id, history, profile_name=name, profile=profile
+            )
             if tool_name == "rag_search":
                 # Re-number this batch so it continues after sources already
                 # collected — otherwise a second rag_search restarts at [1] and
@@ -389,6 +400,8 @@ async def run_agent(
     user_id: str,
     history: list[dict],
     max_iterations: int = 5,
+    name: str | None = None,
+    profile: str | None = None,
 ) -> AgentResult:
     """Non-streaming entry point — consumes the stream into an AgentResult.
 
@@ -398,7 +411,9 @@ async def run_agent(
     result = AgentResult(answer="")
     streamed_chunks: list[str] = []
 
-    async for event in run_agent_stream(message, user_id, history, max_iterations):
+    async for event in run_agent_stream(
+        message, user_id, history, max_iterations, name=name, profile=profile
+    ):
         if event["type"] == "delta":
             streamed_chunks.append(event["text"])
         elif event["type"] == "tool_result":

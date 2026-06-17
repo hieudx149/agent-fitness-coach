@@ -16,6 +16,8 @@ from src.analysis.stats import (
     compute_frequency,
     compute_muscle_group_balance,
     compute_per_exercise,
+    detect_flags,
+    detect_missing_compounds,
 )
 
 
@@ -23,8 +25,17 @@ def _fmt_trend(value: float | None) -> str:
     return f"{value:+.2f} kg/wk" if value is not None else "trend n/a (<2 sessions)"
 
 
-def build_summary(history: list[WorkoutEntry]) -> tuple[str, list[dict]]:
+def build_summary(
+    history: list[WorkoutEntry],
+    name: str | None = None,
+    profile: str | None = None,
+) -> tuple[str, list[dict]]:
     """Render computed stats as markdown and a parallel list of data points.
+
+    Args:
+        history: the user's workout entries.
+        name: athlete display name (rendered as context, not a citable stat).
+        profile: free-text athlete profile (level, bodyweight, training style).
 
     Returns:
         (markdown_summary, data_points) where each data point is
@@ -37,6 +48,8 @@ def build_summary(history: list[WorkoutEntry]) -> tuple[str, list[dict]]:
     per_ex = compute_per_exercise(history)
     by_group = compute_muscle_group_balance(history)
     freq = compute_frequency(history)
+    flags = detect_flags(history)
+    missing = detect_missing_compounds(history)
 
     data_points: list[dict] = []
 
@@ -48,6 +61,15 @@ def build_summary(history: list[WorkoutEntry]) -> tuple[str, list[dict]]:
         return ref
 
     lines: list[str] = []
+
+    # ── Athlete (context, not a citable stat) ──────────────────
+    if name or profile:
+        lines.append("## Athlete")
+        if name:
+            lines.append(f"- Name: {name}")
+        if profile:
+            lines.append(f"- Profile: {profile}")
+        lines.append("")
 
     # ── Frequency ──────────────────────────────────────────────
     freq_detail = (
@@ -101,5 +123,19 @@ def build_summary(history: list[WorkoutEntry]) -> tuple[str, list[dict]]:
         lines.append(
             f"| [{ref}] | {g.group} | {g.sessions} | {g.total_sets} | {g.total_volume_kg} | {g.last_trained} |"
         )
+
+    # ── Programming flags (heuristic detection) ────────────────
+    lines.append("\n## Programming flags")
+    if not flags and not missing:
+        lines.append("- None detected — training looks balanced and consistent.")
+    else:
+        for f in flags:
+            icon = "⚠️" if f.severity == "warning" else "ℹ️"
+            ref = _ref("Flag", f"{f.kind} ({f.severity})", f.message)
+            lines.append(f"- {icon} [{ref}] {f.kind}: {f.message}")
+        for m in missing:
+            detail = f"{m['exercise']} ({m['pattern']}) not present in history"
+            ref = _ref("Flag", f"missing compound: {m['exercise']}", detail)
+            lines.append(f"- ⚠️ [{ref}] missing: {detail}")
 
     return "\n".join(lines), data_points

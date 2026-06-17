@@ -19,6 +19,7 @@ from typing import Any
 
 from src.analysis.insight import build_summary
 from src.analysis.models import WorkoutEntry
+from src.analysis.stats import detect_flags, detect_missing_compounds
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ async def analyze_history(
     user_id: str,
     question: str,
     history: list[dict] | list[WorkoutEntry],
+    name: str | None = None,
+    profile: str | None = None,
 ) -> dict[str, Any]:
     """Compute deterministic statistics over a user's workout history.
 
@@ -35,11 +38,15 @@ async def analyze_history(
         question: natural-language question (logged for audit; the summary
                   itself is question-agnostic so the agent picks what to use)
         history: list of workout entries (dict or WorkoutEntry); validated here
+        name: athlete display name, rendered in the summary header for context
+        profile: free-text athlete profile (level, bodyweight, style) for context
 
     Returns:
         {
             "stats_summary": str,    # markdown table of computed stats
             "data_points": list,     # citable {ref, category, label, detail} facts
+            "flags": list,           # detected {kind, severity, message} red flags
+            "missing_compounds": list,  # expected compounds absent from history
             "insufficient": bool,    # True when history is empty / all malformed
             "user_id": str,
             "n_workouts": int,       # raw count, for quick agent gating
@@ -66,15 +73,23 @@ async def analyze_history(
         return {
             "stats_summary": "",
             "data_points": [],
+            "flags": [],
+            "missing_compounds": [],
             "insufficient": True,
             "user_id": user_id,
             "n_workouts": 0,
         }
 
-    summary, data_points = build_summary(typed_history)
+    summary, data_points = build_summary(typed_history, name=name, profile=profile)
+    flags = [
+        {"kind": f.kind, "severity": f.severity, "message": f.message}
+        for f in detect_flags(typed_history)
+    ]
     return {
         "stats_summary": summary,
         "data_points": data_points,
+        "flags": flags,
+        "missing_compounds": detect_missing_compounds(typed_history),
         "insufficient": False,
         "user_id": user_id,
         "n_workouts": len(typed_history),
