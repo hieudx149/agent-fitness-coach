@@ -30,9 +30,10 @@ function renderUser(msg) {
   return `
     <div class="flex flex-col items-end">
       <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1 pr-1">🙂 Human</div>
-      <div class="max-w-md md:max-w-xl rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
-        ${escapeHtml(msg.content)}
-      </div>
+      <div
+        style="width: max-content; max-width: min(85%, 36rem); word-wrap: break-word;"
+        class="rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm whitespace-pre-wrap"
+      >${escapeHtml(msg.content)}</div>
     </div>
   `;
 }
