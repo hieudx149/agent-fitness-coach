@@ -194,17 +194,38 @@ Simple liveness probe.
 
 Served as static files from `/` — no build step. Vanilla HTML + Tailwind CDN + `marked.js` for markdown + `DOMPurify` for XSS-safe rendering.
 
-Layout choices that matter:
-- **Two roles, one chat.** The sidebar has a Role picker (Coach / Gymer) with a dependent target picker:
-  - **Coach** → picks among the coach's clients (`user_a` Alex, `user_b` Binh). The selected client's history is sent as context — coaches can ask either RAG questions or analysis questions about any client.
-  - **Gymer** → picks among self-service profiles (`gymer_alex` with 64 workouts, `gymer_new` with none). The `gymer_new` profile demos the empty-history graceful path / knowledge-only mode.
-  Both roles hit the same `/chat` endpoint; the agent doesn't need to know about roles, because user phrasing ("my client…" vs "I…") naturally signals intent.
-- **One unified chat thread per (role, target).** Conversations carry a `contextId` (e.g. `coach:user_a`) so the sidebar conversation list filters automatically — chats about Alex never bleed into chats about Binh.
-- **Streaming by default.** The UI hits `POST /api/v1/chat/stream` (NDJSON) and updates tool-trace cards and answer tokens incrementally. Tool cards keep their expanded state while final-answer tokens type in below them.
-- **Perplexity-style inline tool traces** — each tool call is a collapsible card *before* the final answer. The expand-on-click reveals the agent's arguments, the rerank scores, and the full computed stats summary that drove the answer.
-- **localStorage-backed conversation history** in the sidebar with `+ New chat` and per-conversation delete.
-- **Custom JSON upload** overrides the selected target's history — useful for production-like workflows where coaches paste their own client export.
-- **Refused answers** get an amber `🛡 Refused · <CATEGORY>` badge so guardrail triggers are obvious in demos.
+![Chat UI](docs/chat-ui.png)
+
+### Layout
+
+The UI is a two-column layout: a **sidebar** on the left for context setup and conversation management, and a **main chat area** on the right.
+
+**Sidebar (left)**
+
+| Element | What it does |
+|---|---|
+| **Role picker** — Coach / Gymer | Switches between two usage modes. Coach mode shows a client roster; Gymer mode shows self-service profiles. |
+| **Target picker** (context-aware) | Coach → lists clients (Alex · 64 workouts, Binh · 28 workouts). Gymer → lists own profiles (Alex with history, New User with none). |
+| **Workout count badge** | Confirms how many entries are loaded — "64 workouts loaded" — so the user knows what data the agent has before asking a question. |
+| **Upload custom JSON** | Overrides the selected target's sample history with a real client export. Validates the schema client-side before sending. |
+| **Conversations list** | localStorage-backed. Scoped per `(role, target)` — chats about Alex never appear in Binh's list. `+ New chat` button starts a fresh thread. |
+
+**Main area (right)**
+
+| Element | What it does |
+|---|---|
+| **Context badge** (top-right) | Always shows the active context: *"Coach · client: Alex · 64 workouts loaded"* — confirms what data the agent will use. |
+| **Suggested questions** | Three pre-filled prompts on the welcome screen covering all three feature types: RAG, analysis, and multi-step. |
+| **Chat thread** | Human bubbles on the right, agent on the left. Markdown rendered via `marked.js`, sanitised with `DOMPurify`. |
+| **Inline tool-trace cards** | Perplexity-style collapsible cards appear *before* the final answer as tools are called. Expand to see the agent's query, rerank scores, and full stats summary. Cards stay expanded during streaming. |
+| **Citation cards** | Source chips below the answer — document name, section title, rerank score. |
+| **Refused badge** | Amber `🛡 Refused · <CATEGORY>` replaces the normal answer bubble when guardrails fire — category is visible at a glance. |
+| **Footer note** | Persistent reminder: *"The coach refuses medical-diagnosis, injury-rehab, and disordered-eating questions."* |
+| **Backend label** (bottom-left) | Shows the active endpoint (`/api/v1/chat`) — useful during demos to confirm which path is being hit. |
+
+### Role behaviour
+
+Both roles hit the **same `/chat` endpoint**. The agent doesn't need to know which role is active — user phrasing naturally signals intent ("my client…" vs "I…"). The role picker exists purely to load the right history context and scope the conversation list.
 
 ---
 
@@ -420,6 +441,8 @@ See [`EVALUATION.md`](EVALUATION.md) for the full test set, metrics, and failure
 - **Per-coach Qdrant collections + payload filtering** — supports multi-tenant routing once usage metering is in place.
 - **Replace `lr` slope with Mann-Kendall trend** on the weight-trend metric — handles deload weeks more gracefully (a deload currently dips the slope).
 - **Fine-tune the guardrail classifier** on a few hundred labelled examples. Two miscalibrations surfaced during this build (see [`AI_WORKFLOW.md`](AI_WORKFLOW.md)); a fine-tune would let me move from a prompt to a stable distilled model.
+- **Hybrid retrieval (BM25 + dense vector)** — the current pipeline is dense-only: FPT embeddings → Qdrant ANN → cross-encoder rerank. Adding a BM25 sparse pass and merging the two candidate lists with Reciprocal Rank Fusion before the reranker would improve recall on exact-keyword queries (exercise names, specific techniques) that dense search can under-rank. Qdrant's sparse vector support means this is a drop-in extension to `src/rag/retriever.py` with no schema migration.
+- **Instruction-optimised smaller models for guardrail and orchestrator** — both the classifier (`src/guardrails/classifier.py`) and the agent loop (`src/agent/orchestrator.py`) currently use `gpt-4o-mini`. The system prompts are already precise and well-scoped, which is the hard part. The next step is to distil them onto a smaller open-weight model (e.g. `Phi-3-mini` or `Llama-3.1-8B`) by running the current prompts to generate labelled examples, then fine-tuning. A local model eliminates per-call API latency for the classifier (currently 1–2 s) and cuts orchestrator cost to near-zero at scale — the main tradeoff is the one-time fine-tuning overhead and the operational cost of serving the model.
 
 ---
 
