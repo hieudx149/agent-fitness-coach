@@ -44,11 +44,14 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "analyze_history",
             "description": (
-                "Analyze the current user's workout history to answer data-grounded questions. "
-                "Use this when the user references THEIR OWN data — trends in specific lifts, "
+                "Compute deterministic statistics on the current user's workout history. Returns a "
+                "markdown table summarising sessions, max weight, e1RM, weekly weight trend, "
+                "muscle-group balance, and frequency. NO LLM is invoked inside the tool — you read "
+                "the table and synthesise the answer yourself, referencing specific numbers and "
+                "dates. Use this when the user references THEIR OWN data — trends in specific lifts, "
                 "neglected muscle groups, readiness to increase weight, recent volume, gaps in "
                 "training. The user's workout history is provided as context (you do not pass it "
-                "as an argument). Returns an insight with specific numbers and dates."
+                "as an argument)."
             ),
             "parameters": {
                 "type": "object",

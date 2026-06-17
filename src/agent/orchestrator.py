@@ -28,7 +28,7 @@ SYSTEM_PROMPT = """You are Coach Assist, an AI assistant for fitness coaches and
 
 You have access to two tools:
 - rag_search(query): evidence-based info from a curated fitness knowledge base.
-- analyze_history(question): analyzes the CURRENT user's workout history (provided as context).
+- analyze_history(question): returns a deterministic markdown summary of stats over the CURRENT user's workout history (sessions, max weight, e1RM, weekly trend, muscle-group balance, frequency). The tool itself runs no LLM — you read the summary and synthesise the answer.
 
 Decide which tool(s) to call based on the user's question:
 - Generic fitness / training / technique questions → rag_search
@@ -123,9 +123,9 @@ def _result_for_model(name: str, result: dict[str, Any]) -> str:
     if name == "analyze_history":
         return json.dumps(
             {
-                "insight": result.get("insight"),
                 "stats_summary": result.get("stats_summary", "")[:3500],
                 "insufficient": result.get("insufficient", False),
+                "n_workouts": result.get("n_workouts", 0),
             }
         )
     return json.dumps(result)
