@@ -17,7 +17,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from src.agent.orchestrator import run_agent, run_agent_stream
-from src.api.schemas import ChatRequest, ChatResponse, CitationModel, ToolTraceModel
+from src.api.schemas import (
+    ChatRequest,
+    ChatResponse,
+    CitationModel,
+    DataPointModel,
+    ToolTraceModel,
+)
 from src.guardrails.classifier import classify
 from src.guardrails.refusal import refusal_message
 
@@ -50,6 +56,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
             message=request.message,
             user_id=request.user_id,
             history=request.history,
+            name=request.name,
+            profile=request.profile,
         )
     except Exception as exc:  # noqa: BLE001 — surface as 500 with detail
         logger.exception("Agent execution failed")
@@ -69,6 +77,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             for t in result.tool_traces
         ],
         sources=[CitationModel(**s) for s in result.sources],
+        data_points=[DataPointModel(**d) for d in result.data_points],
         usage=result.usage,
         iterations=result.iterations,
     )
@@ -119,6 +128,8 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 message=request.message,
                 user_id=request.user_id,
                 history=request.history,
+                name=request.name,
+                profile=request.profile,
             ):
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # noqa: BLE001

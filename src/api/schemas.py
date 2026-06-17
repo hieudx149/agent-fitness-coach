@@ -11,6 +11,14 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     user_id: str = Field(default="anonymous", max_length=64)
+    name: str | None = Field(
+        default=None, max_length=128, description="Athlete display name (for the analysis header)."
+    )
+    profile: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Athlete profile text (level, bodyweight, training style) for the analysis header.",
+    )
     history: list[dict] = Field(
         default_factory=list,
         description="Optional workout history JSON array (passed when the user wants analysis).",
@@ -33,11 +41,21 @@ class CitationModel(BaseModel):
     snippet: str
 
 
+class DataPointModel(BaseModel):
+    """A citable workout-data fact backing a [Dn] reference in the answer."""
+
+    ref: str
+    category: str
+    label: str
+    detail: str
+
+
 class ChatResponse(BaseModel):
     answer: str
     refused: bool = False
     refusal_category: str | None = None
     tool_traces: list[ToolTraceModel] = Field(default_factory=list)
     sources: list[CitationModel] = Field(default_factory=list)
+    data_points: list[DataPointModel] = Field(default_factory=list)
     usage: dict[str, int] | None = None
     iterations: int | None = None

@@ -7,7 +7,10 @@ Here we only assert wiring is correct and tool schemas conform.
 from src.agent.orchestrator import (
     AgentResult,
     ToolTrace,
+    _filter_cited_data_points,
+    _finalize_sources,
     _history_hint,
+    _offset_rag_citations,
     _result_for_model,
     _summarize_for_ui,
 )
@@ -91,6 +94,87 @@ def test_result_for_model_rag_keeps_essentials():
     assert parsed["citations"][0]["source_file"] == "01-bench-press.md"
     # Extra fields stripped to keep token cost low
     assert "extra" not in parsed["citations"][0]
+
+
+def test_offset_rag_citations_zero_offset_is_noop():
+    result = {
+        "answer": "Use a wider grip [1].",
+        "citations": [{"index": 1, "source_file": "01-bench-press.md"}],
+    }
+    _offset_rag_citations(result, 0)
+    assert result["citations"][0]["index"] == 1
+    assert result["answer"] == "Use a wider grip [1]."
+
+
+def test_offset_rag_citations_shifts_indices_and_inline_refs():
+    """A second rag_search batch must continue numbering after the first.
+
+    This is the multi-hop citation-collision bug: without an offset, the
+    second retrieval restarts at [1] and the UI shows two [1]..[N] blocks.
+    """
+    result = {
+        "answer": "RPE measures effort [1]. RIR is the inverse [2][3].",
+        "citations": [
+            {"index": 1, "source_file": "11-rpe-rir.md"},
+            {"index": 2, "source_file": "11-rpe-rir.md"},
+            {"index": 3, "source_file": "11-rpe-rir.md"},
+        ],
+    }
+    _offset_rag_citations(result, 7)
+    assert [c["index"] for c in result["citations"]] == [8, 9, 10]
+    assert result["answer"] == "RPE measures effort [8]. RIR is the inverse [9][10]."
+
+
+def test_offset_rag_citations_handles_missing_answer():
+    result = {"citations": [{"index": 1, "source_file": "x.md"}]}
+    _offset_rag_citations(result, 5)
+    assert result["citations"][0]["index"] == 6
+
+
+def test_finalize_sources_empty_is_noop():
+    sources, answer = _finalize_sources([], "no sources here")
+    assert sources == []
+    assert answer == "no sources here"
+
+
+def test_finalize_sources_sorts_by_score_and_renumbers():
+    """Merged multi-hop sources must end up globally sorted with sequential ids."""
+    sources = [
+        {"index": 1, "source_file": "a.md", "score": 0.886},
+        {"index": 2, "source_file": "b.md", "score": 0.303},
+        {"index": 3, "source_file": "c.md", "score": 0.794},  # 2nd hop outranks tail of 1st
+    ]
+    answer = "First [1], weak [2], second-hop [3]."
+    ordered, remapped = _finalize_sources(sources, answer)
+
+    assert [c["index"] for c in ordered] == [1, 2, 3]
+    assert [c["score"] for c in ordered] == [0.886, 0.794, 0.303]
+    # [1] stays [1] (still top), [3] becomes [2], [2] becomes [3].
+    assert remapped == "First [1], weak [3], second-hop [2]."
+
+
+def test_finalize_sources_leaves_unmatched_refs_untouched():
+    sources = [{"index": 5, "source_file": "a.md", "score": 0.5}]
+    ordered, remapped = _finalize_sources(sources, "cite [5] and a stray [9].")
+    assert ordered[0]["index"] == 1
+    assert remapped == "cite [1] and a stray [9]."
+
+
+def test_filter_cited_data_points_keeps_only_referenced():
+    data_points = [
+        {"ref": "D1", "category": "Frequency", "label": "Training frequency", "detail": "…"},
+        {"ref": "D2", "category": "Exercise", "label": "bench press", "detail": "…"},
+        {"ref": "D3", "category": "Muscle group", "label": "chest", "detail": "…"},
+    ]
+    answer = "Your bench is trending up [D2] and chest volume leads [D3]."
+    kept = _filter_cited_data_points(data_points, answer)
+    assert [d["ref"] for d in kept] == ["D2", "D3"]
+
+
+def test_filter_cited_data_points_no_citations_returns_empty():
+    data_points = [{"ref": "D1", "category": "x", "label": "y", "detail": "z"}]
+    assert _filter_cited_data_points(data_points, "no refs here") == []
+    assert _filter_cited_data_points([], "mentions [D1]") == []
 
 
 def test_tool_trace_holds_raw_result():

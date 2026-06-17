@@ -16,6 +16,8 @@
     targetId: localStorage.getItem(LS_TARGET) || "gymer_alex",
     roster: { coaches: [], gymers: [] },
     history: [],
+    profileName: null,
+    profile: null,
     inFlight: false,
   };
 
@@ -275,6 +277,8 @@
   async function loadHistoryForTarget(targetId) {
     if (!targetId) {
       state.history = [];
+      state.profileName = null;
+      state.profile = null;
       $historyStatus.textContent = "No target selected";
       return;
     }
@@ -284,6 +288,8 @@
       if (!r.ok) throw new Error(`${r.status}`);
       const data = await r.json();
       state.history = data.history || [];
+      state.profileName = data.name || null;
+      state.profile = data.profile || null;
       if (state.history.length === 0) {
         $historyStatus.textContent = `No workout history (knowledge-only mode)`;
       } else {
@@ -291,6 +297,8 @@
       }
     } catch (e) {
       state.history = [];
+      state.profileName = null;
+      state.profile = null;
       $historyStatus.textContent = `Failed to load: ${e.message}`;
     }
   }
@@ -318,7 +326,7 @@
 
     // Create empty assistant message, then update in place as events arrive.
     const assistantMsg = {
-      role: "assistant", content: "", tool_traces: [], sources: [],
+      role: "assistant", content: "", tool_traces: [], sources: [], data_points: [],
       refused: false, refusal_category: null,
     };
     if ($emptyState && !$emptyState.classList.contains("hidden")) {
@@ -335,7 +343,13 @@
       <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
       <span class="ml-2">Thinking…</span></span>`);
 
-    const body = { message: text, user_id: state.targetId, history: state.history };
+    const body = {
+      message: text,
+      user_id: state.targetId,
+      name: state.profileName,
+      profile: state.profile,
+      history: state.history,
+    };
 
     try {
       const r = await fetch(`${API_BASE}/chat/stream`, {
@@ -463,13 +477,20 @@
         break;
 
       case "done":
-        if (event.answer && !msg.content) {
+        // Re-render from the canonical answer even if we streamed deltas: the
+        // final text has its [n] citations renumbered to match the score-sorted
+        // source cards, so the streamed (pre-sort) numbering must be replaced.
+        if (event.answer) {
           msg.content = event.answer;
           setAnswerHTML(node, window.UI.streamHelpers.renderMarkdown(msg.content));
         }
         if (event.sources && event.sources.length) {
           msg.sources = event.sources;
           window.UI.updateAssistantSection(node, "sources", window.UI.renderCitations(msg.sources));
+        }
+        if (event.data_points && event.data_points.length) {
+          msg.data_points = event.data_points;
+          window.UI.updateAssistantSection(node, "data", window.UI.renderDataPoints(msg.data_points));
         }
         if (event.usage) msg.usage = event.usage;
         if (event.iterations != null) msg.iterations = event.iterations;
@@ -525,6 +546,9 @@
       try {
         const history = await window.UI.parseUploadedHistory(file);
         state.history = history;
+        // Uploaded files carry no profile metadata — clear the target's.
+        state.profileName = null;
+        state.profile = null;
         $historyStatus.textContent = `Loaded ${history.length} entries from ${file.name} (overrides current target)`;
         updateConvStatus();
       } catch (err) {

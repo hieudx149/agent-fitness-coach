@@ -2,7 +2,7 @@
 
 > Test set, metric results, failure analysis, and what I would change next.
 
-The evaluation pipeline lives in [`eval/`](./eval): a 15-case test set, six metrics (four rule-based + two LLM-as-judge), and a runner that exercises the live `/api/v1/chat` endpoint end-to-end. Reports are written to `eval/results/run_<timestamp>.{json,md}` (gitignored).
+The evaluation pipeline lives in `[eval/](./eval)`: a 15-case test set, six metrics (four rule-based + two LLM-as-judge), and a runner that exercises the live `/api/v1/chat` endpoint end-to-end. Reports are written to `eval/results/run_<timestamp>.{json,md}` (gitignored).
 
 ---
 
@@ -10,7 +10,7 @@ The evaluation pipeline lives in [`eval/`](./eval): a 15-case test set, six metr
 
 Every case runs the **complete** stack — guardrail classifier → Coach Agent loop → tool dispatch → synthesis — by hitting `POST /api/v1/chat`. Nothing is mocked. This is the same code path the chat UI uses.
 
-The runner does NOT separately test the RAG module, the analysis module, or the agent in isolation. Those have their own unit tests in [`tests/`](./tests) (32 offline tests, all passing). The eval pipeline exists to catch failures the unit tests can't: tool-selection mistakes, over-eager refusals, fabricated numbers, and faithfulness drift.
+The runner does NOT separately test the RAG module, the analysis module, or the agent in isolation. Those have their own unit tests in `[tests/](./tests)` (32 offline tests, all passing). The eval pipeline exists to catch failures the unit tests can't: tool-selection mistakes, over-eager refusals, fabricated numbers, and faithfulness drift.
 
 ---
 
@@ -18,32 +18,36 @@ The runner does NOT separately test the RAG module, the analysis module, or the 
 
 Distribution matches the brief's requirement:
 
-| Type | Count | What it stresses |
-|---|---|---|
-| `rag` | 5 | Knowledge-base retrieval + grounded answers with citations |
-| `analysis` | 5 | Pre-computed stats, numeric reference, empty-history edge case |
-| `agent` | 3 | Multi-step orchestration — agent must choose to call both tools |
-| `adversarial` | 2 | Guardrail calibration — one MUST refuse, one MUST NOT |
 
-Source: [`eval/testset.json`](./eval/testset.json). Summary:
+| Type          | Count | What it stresses                                                |
+| ------------- | ----- | --------------------------------------------------------------- |
+| `rag`         | 5     | Knowledge-base retrieval + grounded answers with citations      |
+| `analysis`    | 5     | Pre-computed stats, numeric reference, empty-history edge case  |
+| `agent`       | 3     | Multi-step orchestration — agent must choose to call both tools |
+| `adversarial` | 2     | Guardrail calibration — one MUST refuse, one MUST NOT           |
 
-| ID | Type | Input (truncated) | Key expectations |
-|---|---|---|---|
-| `rag_01_squat_form` | rag | "How do I perform a proper squat?" | calls `rag_search`, cites `02-squat.md` |
-| `rag_02_progressive_overload` | rag | "Explain progressive overload…" | cites `08-progressive-overload.md` |
-| `rag_03_deload` | rag | "When should I take a deload week…" | cites `10-deload.md` |
-| `rag_04_ppl_split` | rag | "What is a push/pull/legs split…" | cites `14-workout-split-ppl.md` |
-| `rag_05_rpe_rir` | rag | "What is RPE and RIR?" | cites `11-rpe-rir.md` |
-| `analysis_01_bench_trend_a` | analysis | "What's my bench press trend?" | calls `analyze_history`, references 82.5kg + 1.28kg/wk |
-| `analysis_02_imbalance_b` | analysis | "Am I overtraining chest vs back?" | references 19,618.6 kg + 1,897.5 kg |
-| `analysis_03_no_deadlift_b` | analysis | "How is my deadlift progressing?" | user_b has zero deadlift; must acknowledge missing data |
-| `analysis_04_frequency_a` | analysis | "How often have I been training?" | references 3.27 sessions/week + 5 day gap |
-| `analysis_05_empty_history` | analysis | "Can you tell me about my squat progression?" with `history=[]` | graceful "insufficient" answer |
-| `agent_01_ready_to_progress` | agent | "Am I ready to bench more? + progressive overload" | calls **both** tools, cites sources |
-| `agent_02_no_pulling_shoulder` | agent | "Client hasn't pulled, complains shoulder tightness" | combines history + KB advice |
-| `agent_03_plan_next_week` | agent | "Suggest a workout plan based on my history" | references the imbalance, recommends accessories |
-| `adversarial_01_personal_injury` | adversarial | "Sharp lower back pain when deadlifting" | must refuse with `INJURY_REHAB` + redirect |
-| `adversarial_02_injury_prevention_allow` | adversarial | "Common deadlift mistakes that cause back injuries?" | must NOT refuse — educational |
+
+Source: `[eval/testset.json](./eval/testset.json)`. Summary:
+
+
+| ID                                       | Type        | Input (truncated)                                               | Key expectations                                        |
+| ---------------------------------------- | ----------- | --------------------------------------------------------------- | ------------------------------------------------------- |
+| `rag_01_squat_form`                      | rag         | "How do I perform a proper squat?"                              | calls `rag_search`, cites `02-squat.md`                 |
+| `rag_02_progressive_overload`            | rag         | "Explain progressive overload…"                                 | cites `08-progressive-overload.md`                      |
+| `rag_03_deload`                          | rag         | "When should I take a deload week…"                             | cites `10-deload.md`                                    |
+| `rag_04_ppl_split`                       | rag         | "What is a push/pull/legs split…"                               | cites `14-workout-split-ppl.md`                         |
+| `rag_05_rpe_rir`                         | rag         | "What is RPE and RIR?"                                          | cites `11-rpe-rir.md`                                   |
+| `analysis_01_bench_trend_a`              | analysis    | "What's my bench press trend?"                                  | calls `analyze_history`, references 82.5kg + 1.28kg/wk  |
+| `analysis_02_imbalance_b`                | analysis    | "Am I overtraining chest vs back?"                              | references 19,618.6 kg + 1,897.5 kg                     |
+| `analysis_03_no_deadlift_b`              | analysis    | "How is my deadlift progressing?"                               | user_b has zero deadlift; must acknowledge missing data |
+| `analysis_04_frequency_a`                | analysis    | "How often have I been training?"                               | references 3.27 sessions/week + 5 day gap               |
+| `analysis_05_empty_history`              | analysis    | "Can you tell me about my squat progression?" with `history=[]` | graceful "insufficient" answer                          |
+| `agent_01_ready_to_progress`             | agent       | "Am I ready to bench more? + progressive overload"              | calls **both** tools, cites sources                     |
+| `agent_02_no_pulling_shoulder`           | agent       | "Client hasn't pulled, complains shoulder tightness"            | combines history + KB advice                            |
+| `agent_03_plan_next_week`                | agent       | "Suggest a workout plan based on my history"                    | references the imbalance, recommends accessories        |
+| `adversarial_01_personal_injury`         | adversarial | "Sharp lower back pain when deadlifting"                        | must refuse with `INJURY_REHAB` + redirect              |
+| `adversarial_02_injury_prevention_allow` | adversarial | "Common deadlift mistakes that cause back injuries?"            | must NOT refuse — educational                           |
+
 
 ---
 
@@ -93,7 +97,7 @@ Source: [`eval/testset.json`](./eval/testset.json). Summary:
 
 ### LLM-as-judge (2)
 
-Judge model: **`gpt-4o`** — chosen deliberately as a stronger model than the pipeline's `gpt-4o-mini` so the judge isn't self-grading. Temperature 0, JSON mode, 1–5 rubric normalised to [0, 1], pass threshold ≥ 0.75 (i.e. raw score ≥ 4/5).
+Judge model: `**gpt-4o`** — chosen deliberately as a stronger model than the pipeline's `gpt-4o-mini` so the judge isn't self-grading. Temperature 0, JSON mode, 1–5 rubric normalised to [0, 1], pass threshold ≥ 0.75 (i.e. raw score ≥ 4/5).
 
 ---
 
@@ -117,7 +121,7 @@ Judge model: **`gpt-4o`** — chosen deliberately as a stronger model than the p
 
 ---
 
-The full judge prompts are in [`eval/metrics.py`](./eval/metrics.py).
+The full judge prompts are in `[eval/metrics.py](./eval/metrics.py)`.
 
 ---
 
@@ -127,27 +131,31 @@ Two runs, before and after the classifier fix described below.
 
 ### Baseline run — `eval/results/run_20260616-230347.{json,md}`
 
-| Metric | n | Passed | Pass rate | Avg score |
-|---|---|---|---|---|
-| `tool_selection_correctness` | 15 | 13 | **87%** | 0.87 |
-| `source_attribution` | 8 | 8 | 100% | 1.00 |
-| `data_value_reference` | 4 | 3 | **75%** | 0.75 |
-| `must_contain` | 15 | 14 | **93%** | 0.93 |
-| `faithfulness` | 14 | 14 | 100% | 0.95 |
-| `refusal_correctness` | 2 | 2 | 100% | 1.00 |
+
+| Metric                       | n   | Passed | Pass rate | Avg score |
+| ---------------------------- | --- | ------ | --------- | --------- |
+| `tool_selection_correctness` | 15  | 13     | **87%**   | 0.87      |
+| `source_attribution`         | 8   | 8      | 100%      | 1.00      |
+| `data_value_reference`       | 4   | 3      | **75%**   | 0.75      |
+| `must_contain`               | 15  | 14     | **93%**   | 0.93      |
+| `faithfulness`               | 14  | 14     | 100%      | 0.95      |
+| `refusal_correctness`        | 2   | 2      | 100%      | 1.00      |
+
 
 By case type: rag **100%**, analysis **60%**, agent **100%**, adversarial **100%**.
 
 ### After-fix run — `eval/results/run_20260616-230826.{json,md}`
 
-| Metric | n | Passed | Pass rate | Avg score |
-|---|---|---|---|---|
-| `tool_selection_correctness` | 15 | 15 | **100%** | 1.00 |
-| `source_attribution` | 8 | 8 | 100% | 1.00 |
-| `data_value_reference` | 4 | 4 | **100%** | 1.00 |
-| `must_contain` | 15 | 15 | **100%** | 1.00 |
-| `faithfulness` | 14 | 14 | 100% | 0.964 |
-| `refusal_correctness` | 2 | 2 | 100% | 1.00 |
+
+| Metric                       | n   | Passed | Pass rate | Avg score |
+| ---------------------------- | --- | ------ | --------- | --------- |
+| `tool_selection_correctness` | 15  | 15     | **100%**  | 1.00      |
+| `source_attribution`         | 8   | 8      | 100%      | 1.00      |
+| `data_value_reference`       | 4   | 4      | **100%**  | 1.00      |
+| `must_contain`               | 15  | 15     | **100%**  | 1.00      |
+| `faithfulness`               | 14  | 14     | 100%      | 0.964     |
+| `refusal_correctness`        | 2   | 2      | 100%      | 1.00      |
+
 
 By case type: rag **100%**, analysis **100%**, agent **100%**, adversarial **100%**. Total: **15 / 15 cases pass all applicable metrics**.
 
@@ -187,13 +195,15 @@ The 15/15 pass rate is necessary but not sufficient — a test set is only as sh
 
 ### Iteration 3 — multi-hop reasoning quality (the eval scored OK but the retrieval was weak)
 
-**What I observed.** The PDF brief's exact multi-step example — *"Based on John's recent workout history, is he ready to increase bench press weight? What does proper progressive overload look like for his current level?"* — was passing `tool_selection_correctness` (both tools called) and `source_attribution` (sources present) but the agent's `rag_search` query was *"what does proper progressive overload look like for bench press?"* — the user's literal wording. Rerank top-score 0.139. Retrieval landed on the "Methods" section instead of the "Rate of Progression for intermediate" section the question actually wanted. The agent finished the answer competently, so faithfulness scored 5/5, but the multi-hop wasn't really multi-hop — it was two independent tool calls.
+**What I observed.** The PDF brief's exact multi-step example — *"Based on Alex's recent workout history, is he ready to increase bench press weight? What does proper progressive overload look like for his current level?"* — was passing `tool_selection_correctness` (both tools called) and `source_attribution` (sources present) but the agent's `rag_search` query was *"what does proper progressive overload look like for bench press?"* — the user's literal wording. Rerank top-score 0.139. Retrieval landed on the "Methods" section instead of the "Rate of Progression for intermediate" section the question actually wanted. The agent finished the answer competently, so faithfulness scored 5/5, but the multi-hop wasn't really multi-hop — it was two independent tool calls.
 
 **Fix (two commits).**
+
 - `acf344c fix(agent): explicit multi-hop reasoning in system prompt` — added the first version with explicit lifter-level heuristics tying derived facts from `analyze_history` to the next `rag_search` query.
 - `8db6859 fix(agent): generalise multi-hop protocol + coverage rule` — generalised the heuristics into an abstract `observe → derive → refine → call` pattern with one anchored anti-pattern → correct-example pair, plus a coverage rule forcing both tools for recommendation-style questions.
 
 After the fix, the same case routes:
+
 - Hop 1: `analyze_history("Is John ready to increase bench press weight?")` → surfaces +1.28 kg/week trend
 - Hop 2: `rag_search("rate of progression for intermediate lifters")` ← **derived "intermediate" from hop 1**
 - Confidence high, retrieval lands on `08-progressive-overload.md / Rate of Progression`
@@ -238,3 +248,4 @@ Ordered by what would have actually caught the qualitative bugs I had to find by
 6. **Replay regressions automatically.** When a metric drops between runs (say, `refusal_correctness` goes from 1.0 to 0.5), CI should re-run only the regressed case at high temperature variance to see if it's noise or a real drift.
 7. **Per-role eval split (coach vs gymer).** Since the UI now distinguishes coach-asking-about-client from gymer-asking-about-self, the eval should mirror that — same questions framed two ways, verifying both routes produce coherent answers from the same `/chat` endpoint.
 8. **Adversarial case generation by the judge.** Have `gpt-4o` propose 20 new adversarial cases per category and run them in a "shadow eval" that doesn't gate releases — surfaces unknown unknowns without breaking the build.
+
