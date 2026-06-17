@@ -194,7 +194,7 @@
     }
   }
 
-  // ─── chat send ─────────────────────────────────────────────────
+  // ─── chat send (streaming) ─────────────────────────────────────
   async function sendMessage(text) {
     if (state.inFlight) return;
     if (!text.trim()) return;
@@ -215,51 +215,177 @@
       $convTitle.textContent = c.title;
     }
 
-    showTyping();
-
-    const body = {
-      message: text,
-      user_id: state.userId,
-      history: state.history,
+    // Create empty assistant message, then update in place as events arrive.
+    const assistantMsg = {
+      role: "assistant", content: "", tool_traces: [], sources: [],
+      refused: false, refusal_category: null,
     };
+    if ($emptyState && !$emptyState.classList.contains("hidden")) {
+      $emptyState.classList.add("hidden");
+    }
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = window.UI.renderMessage(assistantMsg);
+    const msgNode = wrapper.firstElementChild;
+    $messages.appendChild(msgNode);
+    window.UI.bindMessage(msgNode);
+
+    // Show a small "thinking…" placeholder inside the answer section
+    setAnswerHTML(msgNode, `<span class="text-slate-400 text-sm">
+      <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+      <span class="ml-2">Thinking…</span></span>`);
+
+    const body = { message: text, user_id: state.userId, history: state.history };
 
     try {
-      const r = await fetch(`${API_BASE}/chat`, {
+      const r = await fetch(`${API_BASE}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      hideTyping();
-      if (!r.ok) {
+      if (!r.ok || !r.body) {
         const errText = await r.text().catch(() => "");
-        appendMessage({
-          role: "assistant",
-          content: `**Error ${r.status}**: ${errText.slice(0, 500) || r.statusText}`,
-        });
+        assistantMsg.content = `**Error ${r.status}**: ${errText.slice(0, 500) || r.statusText}`;
+        setAnswerHTML(msgNode, window.UI.streamHelpers.renderMarkdown(assistantMsg.content));
         return;
       }
-      const data = await r.json();
-      appendMessage({
-        role: "assistant",
-        content: data.answer || "",
-        tool_traces: data.tool_traces || [],
-        sources: data.sources || [],
-        refused: !!data.refused,
-        refusal_category: data.refusal_category,
-        usage: data.usage,
-        iterations: data.iterations,
-      });
+
+      await consumeStream(r.body, assistantMsg, msgNode);
     } catch (e) {
-      hideTyping();
-      appendMessage({
-        role: "assistant",
-        content: `**Network error**: ${e.message}. Is the API running at \`${API_BASE}\`?`,
-      });
+      assistantMsg.content = `**Network error**: ${e.message}. Is the API running at \`${API_BASE}\`?`;
+      setAnswerHTML(msgNode, window.UI.streamHelpers.renderMarkdown(assistantMsg.content));
     } finally {
+      // Persist the assistant message to localStorage
+      const conv = getConversation(state.currentId);
+      if (conv) {
+        conv.messages.push(assistantMsg);
+        saveConversations();
+      }
       state.inFlight = false;
       $sendBtn.disabled = false;
       $input.focus();
     }
+  }
+
+  function setAnswerHTML(msgNode, html) {
+    const el = msgNode.querySelector('[data-section="answer"]');
+    if (el) el.innerHTML = html;
+  }
+
+  async function consumeStream(stream, msg, node) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let firstDelta = true;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop(); // leftover partial line
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch (e) {
+          console.warn("Bad NDJSON line:", line, e);
+          continue;
+        }
+        handleStreamEvent(event, msg, node, () => {
+          if (firstDelta) {
+            // Clear the "Thinking…" placeholder the first time real content arrives
+            setAnswerHTML(node, "");
+            firstDelta = false;
+          }
+        });
+      }
+    }
+    // Flush any remaining buffered partial line
+    if (buffer.trim()) {
+      try {
+        handleStreamEvent(JSON.parse(buffer), msg, node, () => {});
+      } catch {
+        // ignore — final partial often empty
+      }
+    }
+  }
+
+  function handleStreamEvent(event, msg, node, onFirstContent) {
+    switch (event.type) {
+      case "guardrail":
+        if (event.refused) {
+          msg.refused = true;
+          msg.refusal_category = event.category;
+          msg.content = event.answer || "";
+          window.UI.updateAssistantSection(node, "badges", window.UI.streamHelpers.renderRefusedBadge(msg));
+          setAnswerHTML(node, window.UI.streamHelpers.renderMarkdown(msg.content));
+        }
+        break;
+
+      case "tool_call":
+        msg.tool_traces.push({
+          tool_name: event.tool_name,
+          args: event.args || {},
+          result_summary: "Running…",
+          result_detail: null,
+        });
+        window.UI.updateAssistantSection(node, "traces", window.UI.renderToolTraces(msg.tool_traces));
+        break;
+
+      case "tool_result": {
+        const idx = msg.tool_traces.findLastIndex
+          ? msg.tool_traces.findLastIndex(
+              (t) => t.tool_name === event.tool_name && t.result_summary === "Running…",
+            )
+          : findLastIndexCompat(
+              msg.tool_traces,
+              (t) => t.tool_name === event.tool_name && t.result_summary === "Running…",
+            );
+        if (idx >= 0) {
+          msg.tool_traces[idx] = {
+            ...msg.tool_traces[idx],
+            result_summary: event.summary,
+            result_detail: event.detail || null,
+          };
+        }
+        window.UI.updateAssistantSection(node, "traces", window.UI.renderToolTraces(msg.tool_traces));
+        break;
+      }
+
+      case "delta":
+        if (event.text) {
+          onFirstContent();
+          msg.content += event.text;
+          setAnswerHTML(node, window.UI.streamHelpers.renderMarkdown(msg.content));
+        }
+        break;
+
+      case "done":
+        if (event.answer && !msg.content) {
+          msg.content = event.answer;
+          setAnswerHTML(node, window.UI.streamHelpers.renderMarkdown(msg.content));
+        }
+        if (event.sources && event.sources.length) {
+          msg.sources = event.sources;
+          window.UI.updateAssistantSection(node, "sources", window.UI.renderCitations(msg.sources));
+        }
+        if (event.usage) msg.usage = event.usage;
+        if (event.iterations != null) msg.iterations = event.iterations;
+        window.UI.updateAssistantSection(node, "usage", window.UI.streamHelpers.renderUsageBlock(msg));
+        break;
+
+      case "error":
+        msg.content = `**Error**: ${event.message}`;
+        setAnswerHTML(node, window.UI.streamHelpers.renderMarkdown(msg.content));
+        break;
+    }
+    $messages.scrollTop = $messages.scrollHeight;
+  }
+
+  function findLastIndexCompat(arr, predicate) {
+    for (let i = arr.length - 1; i >= 0; i--) if (predicate(arr[i])) return i;
+    return -1;
   }
 
   // ─── event wiring ──────────────────────────────────────────────

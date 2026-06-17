@@ -14,8 +14,9 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
-from src.agent.orchestrator import run_agent
+from src.agent.orchestrator import run_agent, run_agent_stream
 from src.api.schemas import ChatRequest, ChatResponse, CitationModel, ToolTraceModel
 from src.guardrails.classifier import classify
 from src.guardrails.refusal import refusal_message
@@ -70,6 +71,64 @@ async def chat(request: ChatRequest) -> ChatResponse:
         sources=[CitationModel(**s) for s in result.sources],
         usage=result.usage,
         iterations=result.iterations,
+    )
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Streaming variant of /chat — emits NDJSON events as the agent works.
+
+    Event types:
+      {"type":"guardrail", "refused": bool, "category": str|null, "answer": str?}
+      {"type":"tool_call", "tool_name": str, "args": {...}}
+      {"type":"tool_result", "tool_name": str, "args": {...}, "summary": str, "detail": {...}}
+      {"type":"delta", "text": str}
+      {"type":"done", "answer": str, "sources": [...], "usage": {...}, "iterations": int}
+      {"type":"error", "message": str}
+
+    Each event is one JSON object on its own line (application/x-ndjson).
+    """
+
+    async def event_stream():
+        classification = await classify(request.message)
+        if not classification.is_safe:
+            logger.info(
+                "Stream refused: category=%s user=%s",
+                classification.category.value,
+                request.user_id,
+            )
+            yield (
+                json.dumps(
+                    {
+                        "type": "guardrail",
+                        "refused": True,
+                        "category": classification.category.value,
+                        "answer": refusal_message(classification.category),
+                    }
+                )
+                + "\n"
+            )
+            yield json.dumps({"type": "done", "answer": refusal_message(classification.category),
+                              "sources": [], "usage": None, "iterations": 0}) + "\n"
+            return
+
+        yield json.dumps({"type": "guardrail", "refused": False, "category": None}) + "\n"
+
+        try:
+            async for event in run_agent_stream(
+                message=request.message,
+                user_id=request.user_id,
+                history=request.history,
+            ):
+                yield json.dumps(event) + "\n"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Stream agent failed")
+            yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
