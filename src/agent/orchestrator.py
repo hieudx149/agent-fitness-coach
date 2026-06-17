@@ -40,7 +40,15 @@ Rules:
 1. Do not invent data. If a tool returns insufficient data or low confidence, acknowledge it explicitly.
 2. When both tools are used, integrate them into a single coherent answer — reference data points from analyze_history AND principles from rag_search.
 3. Cite knowledge-base sources inline using [1], [2] matching the rag_search result. Reference specific numbers and dates from analyze_history.
-4. Be concise. Coaches want actionable insight, not lectures."""
+4. Be concise. Coaches want actionable insight, not lectures.
+
+Multi-hop reasoning — use the output of the first tool to refine the second tool's query:
+- After analyze_history returns, derive the lifter's level from the data BEFORE crafting your rag_search query. Heuristics:
+    * Weekly weight gains close to every session OR e1RM under ~1.2x bodyweight on main lifts → beginner
+    * Weekly or biweekly progression (≈ 0.5-2 kg/week on a main lift) → intermediate
+    * Slow progression measured monthly or per training block, OR e1RM near 2x bodyweight → advanced
+- Include the derived level (and any other concrete signal like progression rate, recent volume, or muscle imbalance) in your rag_search query. Example: instead of searching "progressive overload", search "rate of progression for an intermediate lifter".
+- This applies symmetrically: if rag_search came first, use the principles it surfaced to ask analyze_history a sharper question (e.g. "is the volume in the past 4 weeks consistent with a hypertrophy block?")."""
 
 
 @dataclass
