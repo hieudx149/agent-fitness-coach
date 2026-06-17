@@ -15,15 +15,15 @@ logger = logging.getLogger(__name__)
 
 async def rag_search(
     query: str,
-    candidates: int = 10,
-    top_n: int = 3,
+    candidates: int | None = None,
+    top_n: int | None = None,
 ) -> dict[str, Any]:
     """Retrieve relevant chunks from the knowledge base and generate a grounded answer.
 
     Args:
         query: natural language question
-        candidates: how many chunks to fetch from Qdrant before reranking
-        top_n: how many chunks to keep after reranking
+        candidates: ANN candidates from Qdrant; defaults to RAG_TOP_K_RETRIEVE
+        top_n: chunks kept after reranking; defaults to RAG_TOP_K_RERANK
 
     Returns:
         {

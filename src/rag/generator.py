@@ -25,8 +25,6 @@ Rules:
 3. Be concise and specific. Reference exercise names, rep ranges, and principles when relevant.
 4. If the question is off-topic from fitness, strength training, or workout programming, respond that it is out of scope rather than guessing."""
 
-CONFIDENCE_THRESHOLD = 0.4
-
 
 def _format_context(chunks: list[RetrievedChunk]) -> str:
     blocks = []
@@ -73,13 +71,14 @@ async def generate_answer(
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
         ],
-        temperature=0.2,
+        temperature=settings.llm_temperature,
+        top_p=settings.llm_top_p,
         max_tokens=600,
     )
     answer = (response.choices[0].message.content or "").strip()
 
     top_score = chunks[0].score
-    confidence = "high" if top_score >= CONFIDENCE_THRESHOLD else "low"
+    confidence = "high" if top_score >= settings.rag_rerank_threshold else "low"
 
     return {
         "answer": answer,

@@ -104,7 +104,8 @@ async def generate_insight(
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
         ],
-        temperature=0.3,
+        temperature=settings.llm_temperature,
+        top_p=settings.llm_top_p,
         max_tokens=600,
     )
     answer = (response.choices[0].message.content or "").strip()

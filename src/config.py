@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://qdrant:6333"
     qdrant_collection: str = "fitness_kb"
 
+    # RAG retrieval tuning
+    rag_top_k_retrieve: int = 20
+    rag_top_k_rerank: int = 7
+    rag_rerank_threshold: float = 0.3
+
+    # LLM sampling (RAG answer, analysis insight, agent loop).
+    # Classifier and judge keep temperature=0 in code regardless of these.
+    llm_temperature: float = 0.3
+    llm_top_p: float = 0.95
+
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     log_level: str = "INFO"

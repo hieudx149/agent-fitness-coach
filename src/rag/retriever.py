@@ -39,9 +39,14 @@ class Retriever:
     async def search(
         self,
         query: str,
-        candidates: int = 10,
-        top_n: int = 3,
+        candidates: int | None = None,
+        top_n: int | None = None,
     ) -> list[RetrievedChunk]:
+        """Two-stage retrieve. None args fall back to RAG_TOP_K_RETRIEVE / RAG_TOP_K_RERANK."""
+        settings = get_settings()
+        candidates = candidates if candidates is not None else settings.rag_top_k_retrieve
+        top_n = top_n if top_n is not None else settings.rag_top_k_rerank
+
         query_vec = await self.fpt_client.embed_query(query)
 
         response = await self.qdrant_client.query_points(
