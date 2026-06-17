@@ -13,11 +13,14 @@ window.UI.renderMessage = function (msg) {
 window.UI.renderTypingPlaceholder = function () {
   return `
     <div class="flex justify-start" data-typing>
-      <div class="max-w-[80%] rounded-lg bg-white border border-slate-200 px-4 py-3 text-slate-500 text-sm">
-        <span class="typing-dot"></span>
-        <span class="typing-dot"></span>
-        <span class="typing-dot"></span>
-        <span class="ml-2">Thinking…</span>
+      <div class="max-w-2xl md:max-w-3xl w-full">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1 pl-1">🤖 Agent</div>
+        <div class="rounded-lg bg-white border border-slate-200 px-4 py-3 text-slate-500 text-sm">
+          <span class="typing-dot"></span>
+          <span class="typing-dot"></span>
+          <span class="typing-dot"></span>
+          <span class="ml-2">Thinking…</span>
+        </div>
       </div>
     </div>
   `;
@@ -25,8 +28,9 @@ window.UI.renderTypingPlaceholder = function () {
 
 function renderUser(msg) {
   return `
-    <div class="flex justify-end">
-      <div class="max-w-[80%] rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm whitespace-pre-wrap">
+    <div class="flex flex-col items-end">
+      <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1 pr-1">🙂 Human</div>
+      <div class="max-w-md md:max-w-xl rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
         ${escapeHtml(msg.content)}
       </div>
     </div>
@@ -50,7 +54,8 @@ function renderAssistant(msg) {
 
   return `
     <div class="flex justify-start">
-      <div class="max-w-[80%] w-full">
+      <div class="max-w-2xl md:max-w-3xl w-full">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1 pl-1">🤖 Agent</div>
         ${refusedBadge}
         ${traces}
         <div class="markdown bg-white border border-slate-200 rounded-lg px-4 py-3 mt-2 text-slate-800">
